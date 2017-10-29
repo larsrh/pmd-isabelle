@@ -1,5 +1,6 @@
 package info.hupel.isabelle.pmd
 
+import java.io.File
 import java.nio.file.{Path, Paths}
 import java.util.Properties
 
@@ -17,26 +18,32 @@ import scala.io.Source
 
 object IsabelleTokenizer {
 
-  def tokenize(regions: Regions, env: Environment, path: Path): List[String] = {
-    def tokenizeRegion(region: Region, iter: CodepointIterator): (List[String], CodepointIterator) =
+  def tokenize(regions: Regions, env: Environment, file: String): List[TokenEntry] = {
+    def mkTokenEntry(str: String, iter: CodepointIterator): Option[TokenEntry] =
+      if (str.trim.isEmpty)
+        None
+      else
+        Some(new TokenEntry(str.trim, file, 0))
+
+    def tokenizeRegion(region: Region, iter: CodepointIterator): (List[TokenEntry], CodepointIterator) =
       tokenizeRegions(region.subRegions, iter, region.range.end)
 
-    def tokenizeRegions(regions: Regions, iter: CodepointIterator, end: Int): (List[String], CodepointIterator) = {
-      def consume(iter: CodepointIterator, items: List[Region]): (List[String], CodepointIterator) = items match {
+    def tokenizeRegions(regions: Regions, iter: CodepointIterator, end: Int): (List[TokenEntry], CodepointIterator) = {
+      def consume(iter: CodepointIterator, items: List[Region]): (List[TokenEntry], CodepointIterator) = items match {
         case Nil =>
           val (str, iter2) = iter.advanceUntil(end)
-          (List(str.trim), iter2)
+          (mkTokenEntry(str, iter).toList, iter2)
         case r :: rs =>
           val (prefix, iter2) = iter.advanceUntil(r.range.start)
           val (parts, iter3) = tokenizeRegion(r, iter2)
           val (rest, iter4) = consume(iter3, rs)
-          (prefix.trim :: parts ::: rest, iter4)
+          (mkTokenEntry(prefix, iter).toList ::: parts ::: rest, iter4)
       }
 
       consume(iter, regions.items)
     }
 
-    val content = env.decode(tag[Environment.Raw].apply(Source.fromFile(path.toFile, "US-ASCII").mkString))
+    val content = env.decode(tag[Environment.Raw].apply(Source.fromFile(new File(file), "US-ASCII").mkString))
     val length = content.codePointCount(0, content.length - 1)
     val iter = CodepointIterator(content, 0, 1)
 
@@ -90,18 +97,14 @@ final class IsabelleTokenizer extends Tokenizer {
       r <- s.invoke(Operation.UseThys(Reports.empty)(_ + _, identity))(List(path.toString.stripSuffix(".thy")))
       model = r.unsafeGet.interpret(e)
       _ = println(model.pretty)
-    } yield IsabelleTokenizer.tokenize(model.regions(path), e, path)
+    } yield IsabelleTokenizer.tokenize(model.regions(path), e, sourceCode.getFileName)
 
-    val result =
-      Await.result(future, 10.seconds).filterNot(_.isEmpty)
+    val result = Await.result(future, 10.seconds)
 
-    result.foreach { string =>
-      tokenEntries.add(new TokenEntry(string, sourceCode.getFileName, 0))
-    }
-
+    result.foreach(tokenEntries.add)
     tokenEntries.add(TokenEntry.getEOF)
 
-    result.foreach(println)
+    result.foreach(entry => println(entry.getBeginLine))
   }
 
 }
