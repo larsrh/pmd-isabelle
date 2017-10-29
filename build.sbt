@@ -1,6 +1,6 @@
 name := "pmd-isabelle"
 
-scalaVersion := "2.12.2"
+scalaVersion := "2.12.3"
 
 libraryDependencies ++= Seq(
   "net.sourceforge.pmd" % "pmd-core" % "5.8.1",
